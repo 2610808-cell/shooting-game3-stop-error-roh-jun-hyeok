@@ -1,220 +1,177 @@
 import streamlit as st
-import random
 
 # 페이지 설정
-st.set_page_config(page_title="2D Boss Shooting Game", layout="centered")
+st.set_page_config(page_title="Missile VFX Code", layout="centered")
 
-st.title("🚀 2D 보스 슈팅 게임 (키보드 조작 완벽 지원)")
-st.write("아래 게임 화면을 **한 번 클릭한 후**, 키보드 **방향키(또는 WASD)**와 **스페이스바(공격)**로 조작하세요!")
+st.title("🚀 미사일 발사 & 폭발 이펙트 (코드 구현)")
+st.write("아래 화면을 **한 번 클릭한 후**, **스페이스바**를 눌러 미사일을 발사해보세요!")
 
-# --- 게임 상태 초기화 ---
-if "weapon_level" not in st.session_state:
-    st.session_state.weapon_level = 1
-    st.session_state.round_num = 1
-    st.session_state.score = 0
-
-# 파이썬 측 점수 및 스테이지 리셋 함수 (상단 UI 업데이트용)
-def reset_game():
-    st.session_state.weapon_level = 1
-    st.session_state.round_num = 1
-    st.session_state.score = 0
-
-# --- 게임 정보 상단 표시 ---
-col1, col2, col3 = st.columns(3)
-col1.metric("STAGE", f"STAGE {st.session_state.round_num}")
-col2.metric("WEAPON", f"LV {st.session_state.weapon_level}")
-col3.metric("SCORE", f"{st.session_state.score}점")
-
-if st.button("🔄 게임 초기화 (Reset)", use_container_width=True):
-    reset_game()
-    st.rerun()
-
-# --- HTML5 + JS 기반 통합 게임 엔진 주입 ---
+# --- HTML5 Canvas + JS 기반 VFX 엔진 주입 ---
 game_html = """
-<div id="game-container" tabindex="0" style="outline:none; text-align:center; cursor:pointer;">
-    <canvas id="gameCanvas" width="700" height="500" style="background-color:#050510; border:3px solid #4a5568; border-radius: 12px;"></canvas>
+<div id="vfx-container" tabindex="0" style="outline:none; text-align:center; cursor:pointer;">
+    <canvas id="vfxCanvas" width="700" height="500" style="background-color:#050510; border:3px solid #4a5568; border-radius: 12px;"></canvas>
     <div style="color: #cbd5e1; margin-top: 8px; font-family: sans-serif; font-size: 14px;">
-        🎮 클릭 후 조작: 이동(방향키 / WASD) | 공격(스페이스바)
+        🎮 클릭 후 스페이스바를 눌러 미사일을 발사하세요
     </div>
 </div>
 
 <script>
-const canvas = document.getElementById('gameCanvas');
+const canvas = document.getElementById('vfxCanvas');
 const ctx = canvas.getContext('2d');
-const container = document.getElementById('game-container');
+const container = document.getElementById('vfx-container');
 
 // 포커스 자동 잡기
 container.focus();
 
-// 게임 상태 정의
-let player = { x: 350, y: 420, size: 40 };
-let enemies = [];
-let boss = null;
-let score = 0;
-let roundNum = 1;
-let weaponLevel = 1;
-let enemiesKilled = 0;
-let enemiesRequired = 5;
-let gameOver = false;
+// 상태 정의
+let player = { x: 350, y: 450 };
+let missiles = [];
+let explosions = [];
+let particles = [];
 
 // 키 입력 상태 추적
-const keys = {};
+let spacePressed = false;
 window.addEventListener('keydown', e => {
-    keys[e.key.toLowerCase()] = true;
-    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key)) {
+    if (e.key === " ") {
+        spacePressed = true;
         e.preventDefault(); // 스크롤 방지
     }
 });
 window.addEventListener('keyup', e => {
-    keys[e.key.toLowerCase()] = false;
+    if (e.key === " ") spacePressed = false;
 });
 
 // 공격 딜레이 제어
 let lastShotTime = 0;
-const shotCooldown = 200; // ms
+const shotCooldown = 150; // ms
 
-function spawnEnemy() {
-    if (!boss && enemies.length < 4 && enemiesKilled < enemiesRequired) {
-        enemies.push({
-            x: Math.random() * (600) + 50,
-            y: Math.random() * 50 + 30,
-            speedX: (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 2 + 1),
-            speedY: Math.random() * 0.5 + 0.5,
-            hp: roundNum
-        });
-    }
-}
-
-function fireBullet() {
+function fireMissile() {
     const now = Date.now();
     if (now - lastShotTime < shotCooldown) return;
     lastShotTime = now;
 
-    if (boss) {
-        let damage = weaponLevel * 2;
-        boss.hp -= damage;
-        if (boss.hp <= 0) {
-            boss = null;
-            roundNum++;
-            enemiesKilled = 0;
-            enemiesRequired += 3;
-            if (weaponLevel < 3) weaponLevel++;
-            score += 500;
-        }
-    } else if (enemies.length > 0) {
-        let targets = Math.min(enemies.length, weaponLevel);
-        for (let i = 0; i < targets; i++) {
-            enemies.shift();
-            enemiesKilled++;
-            score += 100;
-        }
-    }
-    
-    // 보스 스폰 조건 체크
-    if (!boss && enemiesKilled >= enemiesRequired && enemies.length === 0) {
-        boss = { x: 280, y: 50, hp: roundNum * 5, maxHp: roundNum * 5, dir: 1 };
+    missiles.push({
+        x: player.x,
+        y: player.y - 20,
+        speed: 8,
+        life: 1.0 // 미사일 수명
+    });
+}
+
+function createExplosion(x, y, color) {
+    explosions.push({
+        x: x,
+        y: y,
+        life: 1.0, // 폭발 수명
+        maxRadius: 30 + Math.random() * 20,
+        color: color || '#ff4500'
+    });
+
+    // 파티클 추가
+    for (let i = 0; i < 20; i++) {
+        particles.push({
+            x: x,
+            y: y,
+            vx: (Math.random() - 0.5) * 6,
+            vy: (Math.random() - 0.5) * 6,
+            size: Math.random() * 3 + 1,
+            life: 1.0,
+            color: color || '#ffca00'
+        });
     }
 }
 
-// 게임 루프 업데이트
+// 루프 업데이트
 function update() {
-    if (gameOver) return;
+    if (spacePressed) fireMissile();
 
-    // 플레이어 이동 조작
-    if (keys['arrowleft'] || keys['a']) player.x = Math.max(50, player.x - 5);
-    if (keys['arrowright'] || keys['d']) player.x = Math.min(610, player.x + 5);
-    if (keys['arrowup'] || keys['w']) player.y = Math.max(250, player.y - 5);
-    if (keys['arrowdown'] || keys['s']) player.y = Math.min(430, player.y - 5);
-    if (keys[' ']) fireBullet();
+    // 미사일 업데이트
+    missiles.forEach((m, index) => {
+        m.y -= m.speed;
+        m.life -= 0.01; // 수명 감소
 
-    // 적 이동 및 충돌
-    enemies.forEach((enemy, index) => {
-        enemy.y += enemy.speedY;
-        enemy.x += enemy.speedX;
-
-        if (enemy.x < 50 || enemy.x > 650) enemy.speedX *= -1;
-
-        // 플레이어와 충돌 판정
-        if (enemy.y >= player.y - 20 && Math.abs(enemy.x - player.x) < 35) {
-            gameOver = true;
+        // 화면 밖으로 나가거나 수명이 다하면 폭발 생성
+        if (m.y < 50 || m.life <= 0) {
+            createExplosion(m.x, m.y);
+            missiles.splice(index, 1);
         }
     });
 
-    // 보스 이동
-    if (boss) {
-        boss.x += 2 * boss.dir;
-        if (boss.x <= 100 || boss.x >= 500) boss.dir *= -1;
-    }
+    // 폭발 업데이트
+    explosions.forEach((e, index) => {
+        e.life -= 0.02;
+        if (e.life <= 0) {
+            explosions.splice(index, 1);
+        }
+    });
 
-    // 주기적 적 스폰
-    if (Math.random() < 0.02) spawnEnemy();
+    // 파티클 업데이트
+    particles.forEach((p, index) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life -= 0.03;
+        if (p.life <= 0) {
+            particles.splice(index, 1);
+        }
+    });
 }
 
 // 그리기 (Canvas Rendering)
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (gameOver) {
-        ctx.fillStyle = "#ff3366";
-        ctx.font = "bold 40px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("💥 GAME OVER", canvas.width / 2, canvas.height / 2);
-        ctx.font = "20px sans-serif";
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText("Score: " + score + " | 새로고침(R)하여 다시 도전하세요", canvas.width / 2, canvas.height / 2 + 50);
-        return;
-    }
-
-    // 1. 플레이어 그리기
-    ctx.save();
-    ctx.translate(player.x, player.y);
-    ctx.fillStyle = "#ff4500";
-    ctx.beginPath(); ctx.moveTo(15, 45); ctx.lineTo(25, 65); ctx.lineTo(35, 45); ctx.fill();
+    // 1. 미사일 발사대 (간단한 형태)
     ctx.fillStyle = "#e2e8f0";
-    ctx.strokeStyle = "#4a5568";
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(25, 0); ctx.lineTo(5, 40); ctx.lineTo(45, 40); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#00ffff";
-    ctx.beginPath(); ctx.ellipse(25, 25, 6, 12, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
+    ctx.fillRect(player.x - 10, player.y - 10, 20, 20);
 
-    // 2. 일반 적 우주선 그리기
-    enemies.forEach(enemy => {
+    // 2. 미사일 그리기
+    missiles.forEach(m => {
         ctx.save();
-        ctx.translate(enemy.x - 20, enemy.y - 10);
-        ctx.fillStyle = "#ff3366";
+        ctx.translate(m.x, m.y);
+        
+        // 미사일 본체
+        ctx.fillStyle = "#cbd5e1";
+        ctx.fillRect(-2, -10, 4, 15);
+
+        // 발사 화염 (글로우 효과 포함)
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "#ffca00";
+        ctx.fillStyle = "#ff4500";
         ctx.beginPath();
-        ctx.moveTo(0, 10);
-        ctx.quadraticCurveTo(20, -10, 40, 10);
-        ctx.quadraticCurveTo(30, 30, 20, 20);
-        ctx.quadraticCurveTo(10, 30, 0, 10);
+        ctx.moveTo(-2, 5);
+        ctx.lineTo(0, 15 + Math.random() * 5);
+        ctx.lineTo(2, 5);
         ctx.fill();
-        ctx.fillStyle = "#fff";
-        ctx.beginPath(); ctx.arc(13, 10, 3, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(27, 10, 3, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
     });
 
-    // 3. 보스 우주선 그리기
-    if (boss) {
+    // 3. 폭발 효과 그리기
+    explosions.forEach(e => {
         ctx.save();
-        ctx.translate(boss.x, boss.y);
-        ctx.fillStyle = "#44337a";
-        ctx.strokeStyle = "#7928ca";
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(0, 20); ctx.lineTo(70, 0); ctx.lineTo(140, 20); ctx.lineTo(120, 60); ctx.lineTo(20, 60);
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = "#00ffff";
-        ctx.beginPath(); ctx.arc(70, 55, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.translate(e.x, e.y);
         
-        // 보스 HP 바
-        ctx.fillStyle = "#1a202c";
-        ctx.fillRect(0, -15, 140, 6);
-        ctx.fillStyle = "#00f0ff";
-        ctx.fillRect(0, -15, (boss.hp / boss.maxHp) * 140, 6);
+        // 폭발 글로우
+        ctx.shadowBlur = 20 * e.life;
+        ctx.shadowColor = e.color;
+        
+        // 폭발 원 (수명에 따라 크기와 투명도 조절)
+        ctx.globalAlpha = e.life;
+        ctx.fillStyle = e.color;
+        ctx.beginPath();
+        ctx.arc(0, 0, e.maxRadius * (1 - e.life), 0, Math.PI * 2);
+        ctx.fill();
+        
         ctx.restore();
-    }
+    });
+
+    // 4. 파티클 그리기
+    particles.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+        ctx.restore();
+    });
 }
 
 // 메인 루프 실행
@@ -224,11 +181,9 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
-// 최초 적 스폰 및 루프 시작
-spawnEnemy();
 loop();
 </script>
 """
 
-# HTML 컴포넌트 실행 (정상적으로 닫힌 문자열을 전달)
+# HTML 컴포넌트 실행
 st.components.v1.html(game_html, height=550)
