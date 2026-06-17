@@ -1,219 +1,204 @@
 import streamlit as st
 import random
-import math
 
 # 페이지 설정
 st.set_page_config(page_title="2D Boss Shooting Game", layout="centered")
 
-st.title("🚀 2D 보스 슈팅 게임 (키보드 지원)")
-st.write("화면을 한 번 클릭한 후, **키보드 방향키 / WASD** 및 **스페이스바(공격)**로 조작할 수 있습니다!")
+st.title("🚀 2D 보스 슈팅 게임 (키보드 조작 완벽 지원)")
+st.write("아래 게임 화면을 **한 번 클릭한 후**, 키보드 **방향키(또는 WASD)**와 **스페이스바(공격)**로 조작하세요!")
 
 # --- 게임 상태 초기화 ---
-if "player_x" not in st.session_state:
-    st.session_state.player_x = 350
-    st.session_state.player_y = 420
+if "weapon_level" not in st.session_state:
     st.session_state.weapon_level = 1
     st.session_state.round_num = 1
-    st.session_state.enemies_killed = 0
-    st.session_state.enemies_required = 5
-    st.session_state.enemies = []
-    st.session_state.boss = None
-    st.session_state.game_over = False
     st.session_state.score = 0
 
-# --- 게임 로직 함수 ---
+# 파이썬 측 점수 및 스테이지 리셋 함수 (상단 UI 업데이트용)
 def reset_game():
-    st.session_state.player_x = 350
-    st.session_state.player_y = 420
     st.session_state.weapon_level = 1
     st.session_state.round_num = 1
-    st.session_state.enemies_killed = 0
-    st.session_state.enemies_required = 5
-    st.session_state.enemies = []
-    st.session_state.boss = None
-    st.session_state.game_over = False
     st.session_state.score = 0
 
-def spawn_enemy():
-    if not st.session_state.boss and len(st.session_state.enemies) < 4 and st.session_state.enemies_killed < st.session_state.enemies_required:
-        st.session_state.enemies.append({
-            "x": random.randint(50, 650),
-            "y": random.randint(30, 100),
-            "speed_x": random.choice([-15, 0, 15]), # 자연스러운 대각선 이동을 위한 x축 속도
-            "hp": st.session_state.round_num
-        })
+# --- 게임 정보 상단 표시 ---
+col1, col2, col3 = st.columns(3)
+col1.metric("STAGE", f"STAGE {st.session_state.round_num}")
+col2.metric("WEAPON", f"LV {st.session_state.weapon_level}")
+col3.metric("SCORE", f"{st.session_state.score}점")
 
-# 보스 스폰
-if not st.session_state.boss and st.session_state.enemies_killed >= st.session_state.enemies_required and len(st.session_state.enemies) == 0:
-    st.session_state.boss = {"x": 300, "y": 50, "hp": st.session_state.round_num * 5, "max_hp": st.session_state.round_num * 5, "dir": 1}
+if st.button("🔄 게임 초기화 (Reset)", use_container_width=True):
+    reset_game()
+    st.rerun()
 
-# 적 스폰 호출
-if not st.session_state.game_over:
-    spawn_enemy()
-
-# --- 액션 함수 정의 (중복 제거용) ---
-def move_left(): st.session_state.player_x = max(50, st.session_state.player_x - 40)
-def move_right(): st.session_state.player_x = min(630, st.session_state.player_x + 40)
-def move_up(): st.session_state.player_y = max(250, st.session_state.player_y - 40)
-def move_down(): st.session_state.player_y = min(430, st.session_state.player_y + 40)
-
-def update_enemies():
-    # 적들이 플레이어를 향해 부드럽게 지그재그 혹은 하강하도록 유도
-    for enemy in st.session_state.enemies:
-        enemy["y"] += random.randint(10, 20) # 기존보다 낙하 폭을 줄여 자연스럽게 만듦
-        enemy["x"] += enemy["speed_x"]
-        
-        # 벽에 부딪히면 튕김
-        if enemy["x"] < 50 or enemy["x"] > 650:
-            enemy["speed_x"] *= -1
-            
-        # 플레이어와 충돌 판정
-        if enemy["y"] >= st.session_state.player_y - 20 and abs(enemy["x"] - st.session_state.player_x) < 40:
-            st.session_state.game_over = True
-
-    # 보스 좌우 부드러운 패트롤
-    if st.session_state.boss:
-        st.session_state.boss["x"] += 20 * st.session_state.boss["dir"]
-        if st.session_state.boss["x"] <= 100 or st.session_state.boss["x"] >= 500:
-            st.session_state.boss["dir"] *= -1
-
-def fire_bullet():
-    if st.session_state.boss:
-        damage = st.session_state.weapon_level * 2
-        st.session_state.boss["hp"] -= damage
-        st.toast(f"💥 보스 직격! 데미지 {damage}!")
-        if st.session_state.boss["hp"] <= 0:
-            st.session_state.boss = None
-            st.session_state.round_num += 1
-            st.session_state.enemies_killed = 0
-            st.session_state.enemies_required += 3
-            if st.session_state.weapon_level < 3:
-                st.session_state.weapon_level += 1
-            st.success("🎉 보스를 처치했습니다! 무기 강화 장착!")
-            st.session_state.score += 500
-    elif st.session_state.enemies:
-        # 가장 가까운 적 처치 (연사 속도 상향 연출을 위해 무기레벨만큼 다수 타격)
-        targets = min(len(st.session_state.enemies), st.session_state.weapon_level)
-        for _ in range(targets):
-            st.session_state.enemies.pop(0)
-            st.session_state.enemies_killed += 1
-            st.session_state.score += 100
-        st.toast(f"🚀 미사일 쾌속 발사! {targets}기 격추!")
-    else:
-        st.toast("허공에 미사일을 날렸습니다!")
-
-# --- 조작 콘솔 (웹 UI 버튼) ---
-if st.session_state.game_over:
-    st.error(f"💥 GAME OVER! 최종 점수: {st.session_state.score}")
-    if st.button("🔄 다시 시작하기 (R)", use_container_width=True):
-        reset_game()
-        st.rerun()
-else:
-    # 게임 정보 표시
-    col1, col2, col3 = st.columns(3)
-    col1.metric("STAGE", f"STAGE {st.session_state.round_num}")
-    col2.metric("WEAPON", f"LV {st.session_state.weapon_level}")
-    col3.metric("SCORE", f"{st.session_state.score}점")
-
-    if st.session_state.boss:
-        st.warning(f"⚠️ 보스 출현! (보스 HP: {st.session_state.boss['hp']} / {st.session_state.boss['max_hp']})")
-    else:
-        st.info(f"👾 보스 등장까지 남은 적: {max(0, st.session_state.enemies_required - st.session_state.enemies_killed)}마리")
-
-    # 이동 및 공격 컨트롤러 (숨겨진 키보드 연결용 버튼 매핑)
-    st.write("### 🎮 조작 패널")
-    move_col1, move_col2, move_col3, action_col = st.columns([1, 1, 1, 2])
-    
-    with move_col1:
-        if st.button("◀ LEFT (A)", use_container_width=True, key="btn_left"):
-            move_left()
-            update_enemies()
-    with move_col2:
-        if st.button("▲ UP (W)", use_container_width=True, key="btn_up"):
-            move_up()
-            update_enemies()
-        if st.button("▼ DOWN (S)", use_container_width=True, key="btn_down"):
-            move_down()
-            update_enemies()
-    with move_col3:
-        if st.button("RIGHT ▶ (D)", use_container_width=True, key="btn_right"):
-            move_right()
-            update_enemies()
-            
-    with action_col:
-        if st.button("🔥 미사일 발사! (Space)", use_container_width=True, type="primary", key="btn_fire"):
-            fire_bullet()
-            update_enemies()
-
-    # --- 실시간 게임 화면 그리기 + 키보드 이벤트 JS 주입 ---
-    svg_content = f"""
-    <div id="game-container" tabindex="0" style="outline:none;">
-        <svg width="700" height="500" style="background-color:#050510; border:3px solid #4a5568; border-radius: 12px;">
-            <g transform="translate({st.session_state.player_x}, {st.session_state.player_y})">
-                <polygon points="15,45 25,65 35,45" fill="#ff4500" />
-                <polygon points="25,0 5,40 45,40" fill="#e2e8f0" stroke="#4a5568" stroke-width="2"/>
-                <ellipse cx="25" cy="25" rx="6" ry="12" fill="#00ffff"/>
-                <rect x="0" y="25" width="4" height="15" fill="#cbd5e1" />
-                <rect x="46" y="25" width="4" height="15" fill="#cbd5e1" />
-            </g>
-    """
-    
-    # 자연스러워진 일반 적 우주선 그리기
-    for enemy in st.session_state.enemies:
-        svg_content += f"""
-        <g transform="translate({enemy['x']-20}, {enemy['y']-10})">
-            <path d="M 0,10 Q 20,-10 40,10 Q 30,30 20,20 Q 10,30 0,10 Z" fill="#ff3366" />
-            <circle cx="13" cy="10" r="3" fill="#fff" />
-            <circle cx="27" cy="10" r="3" fill="#fff" />
-        </g>
-        """
-        
-    # 보스 우주선 그리기
-    if st.session_state.boss:
-        bx = st.session_state.boss["x"]
-        by = st.session_state.boss["y"]
-        svg_content += f"""
-        <g transform="translate({bx}, {by})">
-            <polygon points="0,20 70,0 140,20 120,60 20,60" fill="#44337a" stroke="#7928ca" stroke-width="3"/>
-            <circle cx="70" cy="55" r="10" fill="#00ffff" />
-        </g>
-        """
-
-    # JavaScript를 이용해 실제 키보드 패널 버튼과 매핑
-    svg_content += """
-        </svg>
+# --- HTML5 + JS 기반 통합 게임 엔진 주입 ---
+# iframe 내부에서 직접 렌더링과 키보드 조작을 처리하므로 반응 속도가 비약적으로 상승합니다.
+game_html = """
+<div id="game-container" tabindex="0" style="outline:none; text-align:center; cursor:pointer;">
+    <canvas id="gameCanvas" width="700" height="500" style="background-color:#050510; border:3px solid #4a5568; border-radius: 12px;"></canvas>
+    <div style="color: #cbd5e1; margin-top: 8px; font-family: sans-serif; font-size: 14px;">
+        🎮 클릭 후 조작: 이동(방향키 / WASD) | 공격(스페이스바)
     </div>
-    <script>
-        const container = document.getElementById('game-container');
-        // 사용자가 화면을 누르면 포커스를 잡아 키보드 이벤트를 수집합니다.
-        container.focus();
-        
-        container.addEventListener('keydown', function(e) {
-            let btnId = "";
-            if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") btnId = "bttn-btn_left";
-            if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") btnId = "bttn-btn_right";
-            if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") btnId = "bttn-btn_up";
-            if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") btnId = "bttn-btn_down";
-            if (e.key === " " || e.key === "Spacebar") {
-                btnId = "bttn-btn_fire";
-                e.preventDefault(); // 스페이스바 화면 스크롤 방지
-            }
-            
-            if (btnId) {
-                // Streamlit 버튼 컴포넌트의 실제 DOM을 찾아 클릭 이벤트를 발생시킵니다.
-                const buttons = window.parent.document.querySelectorAll('button');
-                for (let btn of buttons) {
-                    if (btn.getAttribute('data-testid') === 'stBaseButton-Primary' || btn.getAttribute('data-testid') === 'stBaseButton-Secondary') {
-                        // 대략적인 매핑 또는 내부 텍스트 매칭
-                        if(btnId === "bttn-btn_left" && btn.innerText.includes("LEFT")) btn.click();
-                        if(btnId === "bttn-btn_right" && btn.innerText.includes("RIGHT")) btn.click();
-                        if(btnId === "bttn-btn_up" && btn.innerText.includes("UP")) btn.click();
-                        if(btnId === "bttn-btn_down" && btn.innerText.includes("DOWN")) btn.click();
-                        if(btnId === "bttn-btn_fire" && btn.innerText.includes("미사일")) btn.click();
-                    }
-                }
-            }
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const container = document.getElementById('game-container');
+
+// 포커스 자동 잡기
+container.focus();
+
+// 게임 상태 정의
+let player = { x: 350, y: 420, size: 40 };
+let enemies = [];
+let boss = null;
+let score = 0;
+let roundNum = 1;
+let weaponLevel = 1;
+let enemiesKilled = 0;
+let enemiesRequired = 5;
+let gameOver = false;
+
+// 키 입력 상태 추적
+const keys = {};
+window.addEventListener('keydown', e => {
+    keys[e.key.toLowerCase()] = true;
+    if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key)) {
+        e.preventDefault(); // 스크롤 방지
+    }
+});
+window.addEventListener('keyup', e => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+// 공격 딜레이 제어
+let lastShotTime = 0;
+const shotCooldown = 200; // ms
+
+function spawnEnemy() {
+    if (!boss && enemies.length < 4 && enemiesKilled < enemiesRequired) {
+        enemies.push({
+            x: Math.random() * (600) + 50,
+            y: Math.random() * 50 + 30,
+            speedX: (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 2 + 1),
+            speedY: Math.random() * 0.5 + 0.5,
+            hp: roundNum
         });
-    </script>
-    """
-    st.components.v1.html(svg_content, height=520)
+    }
+}
+
+function fireBullet() {
+    const now = Date.now();
+    if (now - lastShotTime < shotCooldown) return;
+    lastShotTime = now;
+
+    if (boss) {
+        let damage = weaponLevel * 2;
+        boss.hp -= damage;
+        if (boss.hp <= 0) {
+            boss = null;
+            roundNum++;
+            enemiesKilled = 0;
+            enemiesRequired += 3;
+            if (weaponLevel < 3) weaponLevel++;
+            score += 500;
+        }
+    } else if (enemies.length > 0) {
+        let targets = Math.min(enemies.length, weaponLevel);
+        for (let i = 0; i < targets; i++) {
+            enemies.shift();
+            enemiesKilled++;
+            score += 100;
+        }
+    }
+    
+    // 보스 스폰 조건 체크
+    if (!boss && enemiesKilled >= enemiesRequired && enemies.length === 0) {
+        boss = { x: 280, y: 50, hp: roundNum * 5, maxHp: roundNum * 5, dir: 1 };
+    }
+}
+
+// 게임 루프 업데이트
+function update() {
+    if (gameOver) return;
+
+    // 플레이어 이동 조작 (부드러운 가속을 위해 프레임별 체크)
+    if (keys['arrowleft'] || keys['a']) player.x = Math.max(50, player.x - 5);
+    if (keys['arrowright'] || keys['d']) player.x = Math.min(610, player.x + 5);
+    if (keys['arrowup'] || keys['w']) player.y = Math.max(250, player.y - 5);
+    if (keys['arrowdown'] || keys['s']) player.y = Math.min(430, player.y - 5);
+    if (keys[' ']) fireBullet();
+
+    // 적 이동 및 충돌
+    enemies.forEach((enemy, index) => {
+        enemy.y += enemy.speedY;
+        enemy.x += enemy.speedX;
+
+        if (enemy.x < 50 || enemy.x > 650) enemy.speedX *= -1;
+
+        // 플레이어와 충돌 판정
+        if (enemy.y >= player.y - 20 && Math.abs(enemy.x - player.x) < 35) {
+            gameOver = true;
+        }
+    });
+
+    // 보스 이동
+    if (boss) {
+        boss.x += 2 * boss.dir;
+        if (boss.x <= 100 || boss.x >= 500) boss.dir *= -1;
+    }
+
+    // 주기적 적 스폰
+    if (Math.random() < 0.02) spawnEnemy();
+}
+
+// 그리기 (Canvas Rendering)
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (gameOver) {
+        ctx.fillStyle = "#ff3366";
+        ctx.font = "bold 40px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("💥 GAME OVER", canvas.width / 2, canvas.height / 2);
+        ctx.font = "20px sans-serif";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("Score: " + score + " | 새로고침(R)하여 다시 도전하세요", canvas.width / 2, canvas.height / 2 + 50);
+        return;
+    }
+
+    // 1. 플레이어 그리기 (기존 디자인 적용)
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    // 화염
+    ctx.fillStyle = "#ff4500";
+    ctx.beginPath(); ctx.moveTo(15, 45); ctx.lineTo(25, 65); ctx.lineTo(35, 45); ctx.fill();
+    // 본체
+    ctx.fillStyle = "#e2e8f0";
+    ctx.strokeStyle = "#4a5568";
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(25, 0); ctx.lineTo(5, 40); ctx.lineTo(45, 40); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // 조종석
+    ctx.fillStyle = "#00ffff";
+    ctx.beginPath(); ctx.ellipse(25, 25, 6, 12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // 2. 일반 적 우주선 그리기
+    enemies.forEach(enemy => {
+        ctx.save();
+        ctx.translate(enemy.x - 20, enemy.y - 10);
+        ctx.fillStyle = "#ff3366";
+        ctx.beginPath();
+        ctx.moveTo(0, 10);
+        ctx.quadraticCurveTo(20, -10, 40, 10);
+        ctx.quadraticCurveTo(30, 30, 20, 20);
+        ctx.quadraticCurveTo(10, 30, 0, 10);
+        ctx.fill();
+        // 눈
+        ctx.fillStyle = "#fff";
+        ctx.beginPath(); ctx.arc(13, 10, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(27, 10, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    });
+
+    // 3. 보스 우주선 그리기
+    if
