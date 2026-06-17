@@ -189,4 +189,29 @@ game_code = """
                     createVFXExplosion(e.mesh.position, 0xff0055);
                     scene.remove(e.mesh); enemies.splice(i, 1);
                     scene.remove(m); missiles.splice(j, 1);
-                    score +=
+                    score += 100; break;
+                }
+            }
+
+            if (player.mesh && e.mesh.position.distanceTo(player.mesh.position) < 1.4) {
+                createVFXExplosion(player.mesh.position, 0x00ffff);
+                gameOver = true;
+                alert("💥 MISSION FAILED! Score: " + score);
+            }
+            if (e.mesh && e.mesh.position.z > 9) { scene.remove(e.mesh); enemies.splice(i, 1); }
+        }
+        if (Math.random() < 0.025) spawnEnemy();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        update();
+        renderer.render(scene, camera);
+    }
+    animate();
+})();
+</script>
+"""
+
+# 가독성과 마감 에러 차단을 위해 변수를 클린하게 렌더링
+st.components.v1.html(game_code, height=560)
