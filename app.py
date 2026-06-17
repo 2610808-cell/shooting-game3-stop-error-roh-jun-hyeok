@@ -30,7 +30,6 @@ if st.button("🔄 게임 초기화 (Reset)", use_container_width=True):
     st.rerun()
 
 # --- HTML5 + JS 기반 통합 게임 엔진 주입 ---
-# iframe 내부에서 직접 렌더링과 키보드 조작을 처리하므로 반응 속도가 비약적으로 상승합니다.
 game_html = """
 <div id="game-container" tabindex="0" style="outline:none; text-align:center; cursor:pointer;">
     <canvas id="gameCanvas" width="700" height="500" style="background-color:#050510; border:3px solid #4a5568; border-radius: 12px;"></canvas>
@@ -121,7 +120,7 @@ function fireBullet() {
 function update() {
     if (gameOver) return;
 
-    // 플레이어 이동 조작 (부드러운 가속을 위해 프레임별 체크)
+    // 플레이어 이동 조작
     if (keys['arrowleft'] || keys['a']) player.x = Math.max(50, player.x - 5);
     if (keys['arrowright'] || keys['d']) player.x = Math.min(610, player.x + 5);
     if (keys['arrowup'] || keys['w']) player.y = Math.max(250, player.y - 5);
@@ -166,18 +165,15 @@ function draw() {
         return;
     }
 
-    // 1. 플레이어 그리기 (기존 디자인 적용)
+    // 1. 플레이어 그리기
     ctx.save();
     ctx.translate(player.x, player.y);
-    // 화염
     ctx.fillStyle = "#ff4500";
     ctx.beginPath(); ctx.moveTo(15, 45); ctx.lineTo(25, 65); ctx.lineTo(35, 45); ctx.fill();
-    // 본체
     ctx.fillStyle = "#e2e8f0";
     ctx.strokeStyle = "#4a5568";
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(25, 0); ctx.lineTo(5, 40); ctx.lineTo(45, 40); ctx.closePath(); ctx.fill(); ctx.stroke();
-    // 조종석
     ctx.fillStyle = "#00ffff";
     ctx.beginPath(); ctx.ellipse(25, 25, 6, 12, 0, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
@@ -193,7 +189,6 @@ function draw() {
         ctx.quadraticCurveTo(30, 30, 20, 20);
         ctx.quadraticCurveTo(10, 30, 0, 10);
         ctx.fill();
-        // 눈
         ctx.fillStyle = "#fff";
         ctx.beginPath(); ctx.arc(13, 10, 3, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.arc(27, 10, 3, 0, Math.PI * 2); ctx.fill();
@@ -201,4 +196,39 @@ function draw() {
     });
 
     // 3. 보스 우주선 그리기
-    if
+    if (boss) {
+        ctx.save();
+        ctx.translate(boss.x, boss.y);
+        ctx.fillStyle = "#44337a";
+        ctx.strokeStyle = "#7928ca";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(0, 20); ctx.lineTo(70, 0); ctx.lineTo(140, 20); ctx.lineTo(120, 60); ctx.lineTo(20, 60);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#00ffff";
+        ctx.beginPath(); ctx.arc(70, 55, 10, 0, Math.PI * 2); ctx.fill();
+        
+        // 보스 HP 바
+        ctx.fillStyle = "#1a202c";
+        ctx.fillRect(0, -15, 140, 6);
+        ctx.fillStyle = "#00f0ff";
+        ctx.fillRect(0, -15, (boss.hp / boss.maxHp) * 140, 6);
+        ctx.restore();
+    }
+}
+
+// 메인 루프 실행
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// 최초 적 스폰 및 루프 시작
+spawnEnemy();
+loop();
+</script>
+"""
+
+# HTML 컴포넌트 실행 (정상적으로 닫힌 문자열을 전달)
+st.components.v1.html(game_html, height=550)
