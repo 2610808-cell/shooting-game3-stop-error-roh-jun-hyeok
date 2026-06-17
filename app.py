@@ -1,41 +1,75 @@
 import streamlit as st
 
 # 페이지 설정
-st.set_page_config(page_title="2D Boss Shooting Game with VFX", layout="centered")
+st.set_page_config(page_title="2.5D 3D-Model Shooting Game", layout="centered")
 
-st.title("🚀 2D 보스 슈팅 게임 (키보드 조작 & 폭발 이펙트)")
+st.title("🚀 3D 모델 기반 2.5D 보스 슈팅 게임")
 st.write("화면을 **한 번 클릭한 후**, **방향키/WASD**로 이동하고 **스페이스바**로 미사일을 발사하세요!")
 
-# --- HTML5 Canvas + JS 기반 통합 게임 엔진 주입 ---
+# --- Three.js 기반 2.5D 게임 엔진 주입 ---
 game_html = """
 <div id="game-container" tabindex="0" style="outline:none; text-align:center; cursor:pointer;">
-    <canvas id="gameCanvas" width="700" height="500" style="background-color:#050510; border:3px solid #4a5568; border-radius: 12px;"></canvas>
+    <div id="canvas3d" style="width: 700px; height: 500px; border:3px solid #4a5568; border-radius: 12px; overflow:hidden;"></div>
     <div style="color: #cbd5e1; margin-top: 8px; font-family: sans-serif; font-size: 14px;">
-        🎮 이동: 방향키 또는 WASD | 공격: 스페이스바 (연사 가능)
+        🎮 이동: 방향키 또는 WASD | 공격: 스페이스바 (3D 모델 실시간 렌더링)
     </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
 <script>
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
 const container = document.getElementById('game-container');
+const canvasDiv = document.getElementById('canvas3d');
 
 container.focus();
 
-let player = { x: 350, y: 420 };
+// --- 1. Three.js 기본 씬 설정 ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#050510');
+
+// 탑다운 2.5D 카메라 설정 (위에서 아래를 비춤)
+const camera = new THREE.PerspectiveCamera(60, 700 / 500, 0.1, 1000);
+camera.position.set(0, 25, 10); // 위쪽 배치
+camera.lookAt(0, 0, -5);       // 앞쪽 바닥을 바라봄
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(700, 500);
+canvasDiv.appendChild(renderer.domElement);
+
+// 조명 설정 (3D 모델이 보이기 위해 필수)
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+directionalLight.position.set(0, 20, 10);
+scene.add(directionalLight);
+
+// --- 2. 게임 상태 관리 ---
+let player = { x: 0, z: 2, mesh: null };
 let enemies = [];
-let boss = null;
 let missiles = [];
-let explosions = [];
-let particles = [];
-
-let score = 0;
-let roundNum = 1;
-let weaponLevel = 1;
-let enemiesKilled = 0;
-let enemiesRequired = 5;
 let gameOver = false;
+let score = 0;
 
+// --- 3. 3D 모델 로드 (GLTFLoader) ---
+const loader = new THREE.GLTFLoader();
+
+// 플레이어 우주선 3D 모델 불러오기 (샘플 오픈소스 GLTF)
+loader.load('https://threejs.org/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf', (gltf) => {
+    player.mesh = gltf.scene;
+    player.mesh.scale.set(1.5, 1.5, 1.5);
+    player.mesh.position.set(player.x, 0, player.z);
+    scene.add(player.mesh);
+}, undefined, (error) => {
+    // 모델 로드 실패시 대체할 임시 3D 박스 생성
+    const geometry = new THREE.BoxGeometry(1.5, 0.5, 1.5);
+    const material = new THREE.MeshStandardMaterial({ color: 0x00ffff });
+    player.mesh = new THREE.Mesh(geometry, material);
+    player.mesh.position.set(player.x, 0, player.z);
+    scene.add(player.mesh);
+});
+
+// --- 4. 키보드 입력 핸들러 ---
 const keys = {};
 window.addEventListener('keydown', e => {
     keys[e.key.toLowerCase()] = true;
@@ -43,261 +77,124 @@ window.addEventListener('keydown', e => {
         e.preventDefault();
     }
 });
-window.addEventListener('keyup', e => {
-    keys[e.key.toLowerCase()] = false;
-});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
+// --- 5. 미사일 & 적 생성 메커니즘 ---
 let lastShotTime = 0;
-const shotCooldown = 150; 
-
-function spawnEnemy() {
-    if (!boss && enemies.length < 4 && enemiesKilled < enemiesRequired) {
-        enemies.push({
-            x: Math.random() * 550 + 70,
-            y: Math.random() * 50 + 30,
-            speedX: (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 1.5 + 1),
-            speedY: Math.random() * 0.4 + 0.6,
-            hp: roundNum
-        });
-    }
-}
-
 function fireBullet() {
     const now = Date.now();
-    if (now - lastShotTime < shotCooldown) return;
+    if (now - lastShotTime < 200) return;
     lastShotTime = now;
 
-    if (weaponLevel === 1) {
-        missiles.push({ x: player.x + 25, y: player.y, vx: 0, vy: -7, damage: 1 });
-    } else if (weaponLevel === 2) {
-        missiles.push({ x: player.x + 15, y: player.y, vx: -1, vy: -7, damage: 1 });
-        missiles.push({ x: player.x + 35, y: player.y, vx: 1, vy: -7, damage: 1 });
-    } else {
-        missiles.push({ x: player.x + 25, y: player.y, vx: 0, vy: -8, damage: 2 });
-        missiles.push({ x: player.x + 10, y: player.y, vx: -2, vy: -7, damage: 1 });
-        missiles.push({ x: player.x + 40, y: player.y, vx: 2, vy: -7, damage: 1 });
-    }
+    // 3D 미사일 (원기둥 모양)
+    const geometry = new THREE.CylinderGeometry(0.1, 0.1, 0.8, 8);
+    const material = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+    const missileMesh = new THREE.Mesh(geometry, material);
+    
+    missileMesh.rotation.x = Math.PI / 2; // 진행 방향으로 눕히기
+    missileMesh.position.set(player.mesh.position.x, 0, player.mesh.position.z - 1);
+    
+    scene.add(missileMesh);
+    missiles.push(missileMesh);
 }
 
-function createExplosion(x, y, isBoss) {
-    let pCount = isBoss ? 40 : 15;
-    let radius = isBoss ? 55 : 25;
-    let color = isBoss ? '#7928ca' : '#ff4500';
-
-    explosions.push({
-        x: x, y: y, life: 1.0, maxRadius: radius, color: color
-    });
-
-    for (let i = 0; i < pCount; i++) {
-        particles.push({
-            x: x,
-            y: y,
-            vx: (Math.random() - 0.5) * (isBoss ? 10 : 6),
-            vy: (Math.random() - 0.5) * (isBoss ? 10 : 6),
-            size: Math.random() * 3 + 1,
-            life: 1.0,
-            color: isBoss ? (Math.random() > 0.5 ? '#00ffff' : '#7928ca') : '#ffca00'
+function spawnEnemy() {
+    if (enemies.length < 5 && !gameOver) {
+        // 3D 적 기체 (구체 또는 원뿔 모양으로 임시 생성)
+        const geometry = new THREE.ConeGeometry(0.8, 1.5, 4);
+        const material = new THREE.MeshStandardMaterial({ color: 0xff3366 });
+        const enemyMesh = new THREE.Mesh(geometry, material);
+        
+        enemyMesh.rotation.x = Math.PI; // 플레이어를 보게 회전
+        enemyMesh.position.set((Math.random() - 0.5) * 16, 0, -15);
+        
+        scene.add(enemyMesh);
+        enemies.push({
+            mesh: enemyMesh,
+            speedX: (Math.random() - 0.5) * 0.05,
+            speedZ: Math.random() * 0.05 + 0.03
         });
     }
 }
 
+// --- 6. 실시간 프레임 동역학 업데이트 ---
 function update() {
-    if (gameOver) {
-        if (keys['r']) {
-            player = { x: 350, y: 420 };
-            enemies = []; boss = null; missiles = []; explosions = []; particles = [];
-            score = 0; roundNum = 1; weaponLevel = 1; enemiesKilled = 0; enemiesRequired = 5;
-            gameOver = false;
-        }
-        return;
+    if (gameOver) return;
+
+    // 플레이어 3D 이동
+    if (player.mesh) {
+        if (keys['arrowleft'] || keys['a']) player.mesh.position.x = Math.max(-9, player.mesh.position.x - 0.15);
+        if (keys['arrowright'] || keys['d']) player.mesh.position.x = Math.min(9, player.mesh.position.x + 0.15);
+        if (keys['arrowup'] || keys['w']) player.mesh.position.z = Math.max(-5, player.mesh.position.z - 0.15);
+        if (keys['arrowdown'] || keys['s']) player.mesh.position.z = Math.min(5, player.mesh.position.z + 0.15);
+        if (keys[' ']) fireBullet();
+        
+        // 3D 특유의 무빙 연출: 좌우 이동 시 기체 살짝 회전하기
+        if (keys['arrowleft'] || keys['a']) player.mesh.rotation.y = 0.3;
+        else if (keys['arrowright'] || keys['d']) player.mesh.rotation.y = -0.3;
+        else player.mesh.rotation.y = 0;
     }
 
-    if (keys['arrowleft'] || keys['a']) player.x = Math.max(30, player.x - 5);
-    if (keys['arrowright'] || keys['d']) player.x = Math.min(620, player.x + 5);
-    if (keys['arrowup'] || keys['w']) player.y = Math.max(220, player.y - 5);
-    if (keys['arrowdown'] || keys['s']) player.y = Math.min(430, player.y - 5);
-    if (keys[' ']) fireBullet();
+    // 미사일 이동 및 제거
+    for (let i = missiles.length - 1; i >= 0; i--) {
+        missiles[i].position.z -= 0.3;
+        if (missiles[i].position.z < -20) {
+            scene.remove(missiles[i]);
+            missiles.splice(i, 1);
+        }
+    }
 
-    missiles.forEach((m, mIdx) => {
-        m.x += m.vx;
-        m.y += m.vy;
+    // 적 이동 및 충돌 판정
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        let e = enemies[i];
+        e.mesh.position.z += e.speedZ;
+        e.mesh.position.x += e.speedX;
+        e.mesh.rotation.z += 0.02; // 적 기체 회전 이펙트
 
-        if (m.y < 0 || m.x < 0 || m.x > 700) {
-            missiles.splice(mIdx, 1);
-            return;
+        // 벽 튕기기
+        if (e.mesh.position.x < -9 || e.mesh.position.x > 9) e.speedX *= -1;
+
+        // 미사일 vs 적 충돌 체크 (3D 거리 계산)
+        for (let j = missiles.length - 1; j >= 0; j--) {
+            let m = missiles[j];
+            let dist = e.mesh.position.distanceTo(m.position);
+            if (dist < 1.2) {
+                // 적 제거
+                scene.remove(e.mesh);
+                enemies.splice(i, 1);
+                // 미사일 제거
+                scene.remove(m);
+                missiles.splice(j, 1);
+                score += 100;
+                break;
+            }
         }
 
-        if (boss && m.y <= boss.y + 60 && m.y >= boss.y && m.x >= boss.x && m.x <= boss.x + 140) {
-            boss.hp -= m.damage;
-            createExplosion(m.x, m.y, false);
-            missiles.splice(mIdx, 1);
-
-            if (boss.hp <= 0) {
-                createExplosion(boss.x + 70, boss.y + 30, true);
-                boss = null;
-                roundNum++;
-                enemiesKilled = 0;
-                enemiesRequired += 3;
-                if (weaponLevel < 3) weaponLevel++;
-                score += 500;
-            }
-            return;
-        }
-
-        enemies.forEach((e, eIdx) => {
-            if (Math.abs(m.x - e.x) < 25 && Math.abs(m.y - e.y) < 20) {
-                e.hp -= m.damage;
-                createExplosion(e.x, e.y, false);
-                missiles.splice(mIdx, 1);
-
-                if (e.hp <= 0) {
-                    enemies.splice(eIdx, 1);
-                    enemiesKilled++;
-                    score += 100;
-                }
-            }
-        });
-    });
-
-    enemies.forEach((enemy, index) => {
-        enemy.y += enemy.speedY;
-        enemy.x += enemy.speedX;
-
-        if (enemy.x < 50 || enemy.x > 650) enemy.speedX *= -1;
-
-        if (enemy.y >= player.y && enemy.y <= player.y + 40 && enemy.x >= player.x && enemy.x <= player.x + 50) {
+        // 플레이어 vs 적 충돌 체크 (Game Over)
+        if (player.mesh && e.mesh.position.distanceTo(player.mesh.position) < 1.5) {
             gameOver = true;
+            alert("💥 GAME OVER! 최종 점수: " + score);
         }
-        if (enemy.y > 500) enemies.splice(index, 1);
-    });
 
-    if (boss) {
-        boss.x += 2.5 * boss.dir;
-        if (boss.x <= 50 || boss.x >= 510) boss.dir *= -1;
-    } else if (enemiesKilled >= enemiesRequired && enemies.length === 0) {
-        boss = { x: 280, y: 50, hp: roundNum * 6, maxHp: roundNum * 6, dir: 1 };
+        // 화면 아래로 지나간 적 제거
+        if (e.mesh && e.mesh.position.z > 8) {
+            scene.remove(e.mesh);
+            enemies.splice(i, 1);
+        }
     }
-
-    explosions.forEach((e, index) => {
-        e.life -= 0.04;
-        if (e.life <= 0) explosions.splice(index, 1);
-    });
-    particles.forEach((p, index) => {
-        p.x += p.vx; p.y += p.vy;
-        p.life -= 0.03;
-        if (p.life <= 0) particles.splice(index, 1);
-    });
 
     if (Math.random() < 0.02) spawnEnemy();
 }
 
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = "#cbd5e1";
-    ctx.font = "bold 16px sans-serif";
-    ctx.fillText(`STAGE: ${roundNum}`, 20, 30);
-    ctx.fillText(`WEAPON: LV ${weaponLevel}`, 150, 30);
-    ctx.fillText(`SCORE: ${score}`, 280, 30);
-    if (!boss) {
-        ctx.fillText(`🎯 NEXT BOSS: ${Math.max(0, enemiesRequired - enemiesKilled)} REMAIN`, 500, 30);
-    } else {
-        ctx.fillStyle = "#ff3366";
-        ctx.fillText(`⚠️ BOSS EMERGENCY!`, 500, 30);
-    }
-
-    if (gameOver) {
-        ctx.fillStyle = "#ff3366";
-        ctx.font = "bold 40px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("💥 GAME OVER", canvas.width / 2, canvas.height / 2);
-        ctx.font = "18px sans-serif";
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(`최종 점수: ${score}점 | 재시작하려면 키보드 [ R ] 키를 누르세요`, canvas.width / 2, canvas.height / 2 + 50);
-        ctx.textAlign = "left";
-        return;
-    }
-
-    ctx.save();
-    ctx.translate(player.x, player.y);
-    ctx.fillStyle = "#ff4500";
-    ctx.beginPath(); ctx.moveTo(25, 45); ctx.lineTo(35, 60); ctx.lineTo(45, 45); ctx.fill();
-    ctx.fillStyle = "#e2e8f0";
-    ctx.strokeStyle = "#4a5568"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(35, 0); ctx.lineTo(15, 40); ctx.lineTo(55, 40); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = "#00ffff";
-    ctx.beginPath(); ctx.ellipse(35, 25, 6, 12, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
-
-    missiles.forEach(m => {
-        ctx.save();
-        ctx.translate(m.x, m.y);
-        ctx.shadowBlur = 8; ctx.shadowColor = "#ffca00";
-        ctx.fillStyle = "#00ffff";
-        ctx.fillRect(-2, -8, 4, 10);
-        ctx.restore();
-    });
-
-    enemies.forEach(enemy => {
-        ctx.save();
-        ctx.translate(enemy.x - 20, enemy.y - 10);
-        ctx.fillStyle = "#ff3366";
-        ctx.beginPath();
-        ctx.moveTo(0, 10); ctx.quadraticCurveTo(20, -10, 40, 10);
-        ctx.quadraticCurveTo(30, 30, 20, 20); ctx.quadraticCurveTo(10, 30, 0, 10);
-        ctx.fill();
-        ctx.fillStyle = "#fff";
-        ctx.beginPath(); ctx.arc(13, 10, 3, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.arc(27, 10, 3, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-    });
-
-    if (boss) {
-        ctx.save();
-        ctx.translate(boss.x, boss.y);
-        ctx.fillStyle = "#44337a"; ctx.strokeStyle = "#7928ca"; ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(0, 20); ctx.lineTo(70, 0); ctx.lineTo(140, 20); ctx.lineTo(120, 60); ctx.lineTo(20, 60);
-        ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = "#00ffff";
-        ctx.beginPath(); ctx.arc(70, 55, 10, 0, Math.PI * 2); ctx.fill();
-        
-        ctx.fillStyle = "#1a202c"; ctx.fillRect(0, -15, 140, 6);
-        ctx.fillStyle = "#00f0ff"; ctx.fillRect(0, -15, (boss.hp / boss.maxHp) * 140, 6);
-        ctx.restore();
-    }
-
-    explosions.forEach(e => {
-        ctx.save();
-        ctx.translate(e.x, e.y);
-        ctx.shadowBlur = 25 * e.life; ctx.shadowColor = e.color;
-        ctx.globalAlpha = e.life;
-        ctx.fillStyle = e.color;
-        ctx.beginPath();
-        ctx.arc(0, 0, e.maxRadius * (1 - e.life), 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    });
-
-    particles.forEach(p => {
-        ctx.save();
-        ctx.globalAlpha = p.life;
-        ctx.fillStyle = p.color;
-        ctx.fillRect(p.x, p.y, p.size, p.size);
-        ctx.restore();
-    });
-}
-
-function loop() {
+// --- 7. 렌더 루프 가동 ---
+function animate() {
+    requestAnimationFrame(animate);
     update();
-    draw();
-    requestAnimationFrame(loop);
+    renderer.render(scene, camera);
 }
 
-spawnEnemy();
-loop();
+animate();
 </script>
 """
 
-# 완전 통합본 게임 플레이 프레임 주입
 st.components.v1.html(game_html, height=560)
